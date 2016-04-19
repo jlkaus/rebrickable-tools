@@ -19,6 +19,8 @@ $USER_AGENT->agent("PerlRebrick/0.1");
 
 our $USER_HASH = undef;
 
+our $SHOW_CALLS = undef;
+
 binmode(STDOUT, ":utf8");
 
 sub saveHash {
@@ -104,6 +106,10 @@ sub call_api {
     print "REQ:\n";
     print $req->as_string;
     print "\n\n";
+  }
+
+  if($SHOW_CALLS) {
+    print STDERR "$method $API_URL/$api?$encoded_parms\n";
   }
 
   my $rsp = $USER_AGENT->request($req);
