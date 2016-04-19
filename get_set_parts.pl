@@ -11,8 +11,6 @@ binmode(STDOUT, ":utf8");
 my $set_id = shift || undef;
 my $verbose = shift;
 
-Rebrickable::loadHash();
-
 my $results = Rebrickable::call_api("get_set_parts","GET",{set=>$set_id}, $verbose);
 if($results->{code} != 200) {
   die "ERROR: get_set_parts API got rc=$results->{code} [$results->{message}]\n";

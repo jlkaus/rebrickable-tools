@@ -8,8 +8,6 @@ use Data::Dumper;
 my $setlist_id = shift || undef;
 my $verbose = shift;
 
-Rebrickable::loadHash();
-
 my $results = Rebrickable::call_api("get_user_sets","GET",{setlist_id=>$setlist_id}, $verbose);
 if($results->{code} != 200) {
   die "ERROR: get_user_sets API got rc=$results->{code} [$results->{message}]\n";

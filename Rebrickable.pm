@@ -20,6 +20,9 @@ our $USER_HASH = undef;
 
 sub saveHash {
   my ($hash) = @_;
+
+  $USER_HASH = $hash;
+
   chomp $hash;
   my $ofh;
   open($ofh, ">", $USER_HASH_FILE) or die "ERROR: Can't open [$USER_HASH_FILE] for writing\n";
@@ -43,6 +46,8 @@ sub loadHash {
 
   return $hash;
 }
+
+loadHash if -r $USER_HASH_FILE;
 
 sub call_api {
   my ($api, $method, $parms, $verbose) = @_;
