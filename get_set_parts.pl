@@ -3,21 +3,13 @@
 use strict;
 use warnings;
 use Rebrickable;
-use Data::Dumper;
-use utf8;
-
-binmode(STDOUT, ":utf8");
 
 my $set_id = shift || undef;
 my $verbose = shift;
 
-my $results = Rebrickable::call_api("get_set_parts","GET",{set=>$set_id}, $verbose);
+my $results = Rebrickable::get_set_parts($set_id, $verbose);
 if($results->{code} != 200) {
   die "ERROR: get_set_parts API got rc=$results->{code} [$results->{message}]\n";
-}
-
-if($verbose) {
-  print Dumper($results->{data});
 }
 
 foreach(@{$results->{data}->[0]->{parts}}) {

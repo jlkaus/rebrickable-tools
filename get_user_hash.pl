@@ -18,10 +18,8 @@ print "\n";
 chomp $user;
 chomp $pass;
 
-my $results = Rebrickable::call_api("get_user_hash","POST",{email=>$user, pass=>$pass}, $verbose);
-if($results->{code} == 200) {
-  Rebrickable::saveHash($results->{raw_data});
-} else {
+my $results = Rebrickable::get_user_hash($user, $pass, $verbose);
+if($results->{code} != 200) {
   die "ERROR: get_user_hash API got rc=$results->{code} [$results->{message}]\n";
 }
 

@@ -3,17 +3,12 @@
 use strict;
 use warnings;
 use Rebrickable;
-use Data::Dumper;
 
 my $verbose = shift;
 
-my $results = Rebrickable::call_api("get_user_setlists","GET",{}, $verbose);
+my $results = Rebrickable::get_user_setlists($verbose);
 if($results->{code} != 200) {
   die "ERROR: get_user_setlists API got rc=$results->{code} [$results->{message}]\n";
-}
-
-if($verbose) {
-  print Dumper($results->{data});
 }
 
 foreach(@{$results->{data}->{sets}}) {

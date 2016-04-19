@@ -8,6 +8,7 @@ use HTTP::Request;
 use HTTP::Response;
 use URI::Escape;
 use JSON;
+use Data::Dumper;
 
 our $API_URL="http://rebrickable.com/api";
 our $API_KEY="04KAsdNiyk";
@@ -17,6 +18,8 @@ our $USER_AGENT=LWP::UserAgent->new();
 $USER_AGENT->agent("PerlRebrick/0.1");
 
 our $USER_HASH = undef;
+
+binmode(STDOUT, ":utf8");
 
 sub saveHash {
   my ($hash) = @_;
@@ -113,6 +116,9 @@ sub call_api {
 
   if($rsp->header("Content-type") =~ /\bapplication\/json\b/) {
     $results->{data} = JSON::decode_json($rsp->decoded_content());
+    if($verbose) {
+      print Data::Dumper->Dump([$results->{data}],["data"]);
+    }
   }
 
   $results->{code} = $rsp->code;
@@ -122,6 +128,40 @@ sub call_api {
   return $results;
 }
 
+sub get_user_hash {
+  my ($email, $pass, $verbose) = @_;
+
+  my $results = call_api("get_user_hash","POST", {email=>$email, pass=>$pass}, $verbose);
+  if($results->{code} == 200) {
+    saveHash($results->{raw_data});
+  }
+
+  return $results;
+}
+
+sub get_user_set_lists {
+  my ($verbose) = @_;
+
+  return  call_api("get_user_setlists","GET",{},$verbose);
+}
+
+sub get_user_sets {
+  my ($setlist_id, $verbose) = @_;
+
+  return call_api("get_user_sets","GET",{setlist_id=>$setlist_id}, $verbose);
+}
+
+sub get_set_parts {
+  my ($set_id, $verbose) = @_;
+
+  return call_api("get_set_parts","GET",{set=>$set_id}, $verbose);
+}
+
+sub get_part {
+  my ($part_id, $verbose) = @_;
+
+  return call_api("get_part","GET",{part_id=>$part_id,inc_rels=>1}, $verbose);
+}
 
 1;
 
