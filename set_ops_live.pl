@@ -83,6 +83,13 @@ my @set_stack = ();
 while(<>) {
   chomp;
   my $cmd = $_;
+
+  # skip empty lines
+  next if /^\s*$/;
+
+  # skip comments
+  next if /^\s*#.*$/;
+
   my $stack_size = scalar @set_stack;  
   print STDERR "$cmd ($stack_size)\n" if $trace_ops;
 

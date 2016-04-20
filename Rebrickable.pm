@@ -145,7 +145,7 @@ sub get_user_hash {
   return $results;
 }
 
-sub get_user_set_lists {
+sub get_user_setlists {
   my ($verbose) = @_;
 
   return  call_api("get_user_setlists","GET",{},$verbose);
