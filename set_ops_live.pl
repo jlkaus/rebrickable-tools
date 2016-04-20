@@ -6,19 +6,20 @@ use Rebrickable;
 
 #$Rebrickable::SHOW_CALLS = 1;
 
-my $operation = shift ||die "ERROR: Must specify an operation of {union,intersection,difference,sum}\n";
 
-my $primary = shift || die "ERROR: Must specify at least one input set.\n";
+my $trace_ops = undef;
 
-my @secondaries = @ARGV;
-
-# hash by part_id and color_name
-my %part_hash = ();
+if(scalar @ARGV > 0) {
+  if($ARGV[0] eq "-v") {
+    shift;
+    $trace_ops = 1;
+  }
+}
 
 sub parse_input {
   my ($set_id) = @_;
 
-  my %parts = ();
+  my $parts = {};
 
   my $results = Rebrickable::get_set_parts($set_id);
 
@@ -30,22 +31,19 @@ sub parse_input {
         $c =~ s/\s/_/g;
         my $k = $e->{part_id}.$c;
 
-        if(!defined $parts{$k}) {
-          $parts{$k} = {part_id=>$e->{part_id},uid=>$e->{element_id},qty=>$e->{qty},type=>$e->{type},color=>$c,desc=>$e->{part_name}, hits=>1, sets=>[$set_id]};
+        if(!defined $parts->{$k}) {
+          $parts->{$k} = {part_id=>$e->{part_id},uid=>$e->{element_id},qty=>$e->{qty},type=>$e->{type},color=>$c,desc=>$e->{part_name}, hits=>1, sets=>[$set_id]};
         } else {
-          $parts{$k}->{qty} += $e->{qty};
-          if($parts{$k}->{type} ne $e->{type}) {
-            $parts{$k}->{type} .= ",$e->{type}";
+          $parts->{$k}->{qty} += $e->{qty};
+          if($parts->{$k}->{type} ne $e->{type}) {
+            $parts->{$k}->{type} .= ",$e->{type}";
           }
         }
       }
   }
 
-  return %parts;
+  return $parts;
 }
-
-# parse the primary to populate the working set.
-%part_hash = parse_input($primary);
 
 # Cache of part relationship lookups.  Each entry is a part_id->[related_part_ids...] mapping.
 # Just MOLD rel_types are included, and are assumed to be transitive
@@ -78,16 +76,112 @@ sub check_related {
   return defined $part_related{$part_id} ? @{$part_related{$part_id}} : ();
 }
 
-# for each secondary, parse it and operate between it and the working set
-foreach(@secondaries) {
-  my $s = $_;
+# Do all the operations
 
-  my %temp_hash = parse_input($s);
+my @set_stack = ();
 
-  foreach(keys %temp_hash) {
+while(<>) {
+  chomp;
+  my $cmd = $_;
+  my $stack_size = scalar @set_stack;  
+  print STDERR "$cmd ($stack_size)\n" if $trace_ops;
+
+  if($cmd eq "union" ||
+     $cmd eq "intersection" ||
+     $cmd eq "difference" ||
+     $cmd eq "sum") {
+    # actually a valid two-operand command
+    # pop the top two items from the stack
+    # and if they are both valid, perform the op
+    # then push the result back on the top of the stack
+    my $b = pop @set_stack;
+    my $a = pop @set_stack;
+
+    if(defined $a && defined $b) {
+      push @set_stack, do_op($cmd, $a, $b);
+    } else {
+      die "ERROR: Can't perform $cmd on stack with fewer than two items ($ARGV:$.).\n";
+    }
+
+  } elsif($cmd eq "dup") {
+    # duplicates the top-most item on the stack
+    my $a = pop @set_stack;
+    if(defined $a) {
+      push @set_stack, $a;
+      push @set_stack, {%{$a}};
+    } else {
+      die "ERROR: Can't dup an empty stack ($ARGV:$.).\n";
+    }
+  
+  } elsif($cmd eq "drop") {
+    # drops the top-most item on the stack
+    my $a = pop @set_stack;
+    if(defined $a) {
+      # great.  done
+    } else {
+      die "ERROR: Can't drop from an empty stack ($ARGV:$.).\n";
+    }
+  } elsif($cmd eq "exchange") {
+    # exchanges the top two items on the stack
+    my $b = pop @set_stack;
+    my $a = pop @set_stack;
+    if(defined $a && defined $b) {
+      push @set_stack, $b;
+      push @set_stack, $a;
+    } else {
+      die "ERROR: Can't exchange on a stack with fewer than two items ($ARGV:$.).\n";
+    } 
+  } elsif($cmd eq "print") {
+    # display the set on the top of the stack
+    my $a = pop @set_stack;
+    if(defined $a) {
+      print_set($a);
+    } else {
+      die "ERROR: Can't print from an empty stack ($ARGV:$.).\n";
+    }
+  } else {
+    # must just be a set
+    # parse it, and add it to the top of the stack
+    my $a = parse_set($cmd);
+    if(defined $a) {
+      push @set_stack, $a;
+    } else {
+      die "ERROR: Can't load set [$cmd] onto the stack ($ARGV:$.).\n";
+    }
+  }
+}
+
+# if the stack isn't empty at the end, display the top item
+if(scalar @set_stack) {
+  my $stack_size = scalar @set_stack;
+  print STDERR "[print] ($stack_size)\n" if $trace_ops;
+  my $a = pop @set_stack;
+  print_set($a);
+}
+
+exit 0
+
+sub print_set {
+  my ($a) = @_;
+
+  foreach(sort keys %{$a}) {
+    my $e=$a->{$_};
+    if(defined $e && $e->{qty} > 0) {
+      printf "%-10s %-10s %5d %6s %-20s \"%s\" %s\n", $e->{part_id}, $e->{uid},$e->{qty},$e->{type},$e->{color},$e->{desc}, join(',',@{$e->{sets}});
+    }
+  }
+
+}
+
+sub do_op {
+  my ($op, $a, $b) = @_;
+
+  my $c = {%{$a}};
+
+  foreach(keys %{$b}) {
     my $k = $_;
-    my $se = $temp_hash{$k};
-    my $pe = $part_hash{$k};
+    my $se = $b->{$k};
+    my $pe = $c->{$k};
 
     # ok, if we don't find an exact match in the part_hash, check for related parts
     if(!defined $pe) {
@@ -96,7 +190,7 @@ foreach(@secondaries) {
 
       RELATED: foreach(@related) {
         my $k2 = $_.$color;
-        $pe = $part_hash{$k2};
+        $pe = $c->{$k2};
         last RELATED if defined $pe;
       }
     }
@@ -104,17 +198,17 @@ foreach(@secondaries) {
     my $sq = $se->{qty};
     my $pq = defined $pe ? $pe->{qty} : 0;
 
-    if($operation eq "union") {
+    if($op eq "union") {
       if(!defined $pe) {
         # if the working set doesn't have this one, just use ours
-        $part_hash{$k} = $se;
+        $c->{$k} = $se;
       } else {
         # if both have it, chose the max qty one to keep
         $pe->{qty} = $sq > $pq ? $sq : $pq;
         push @{$pe->{sets}}, $s;
       }
 
-    } elsif($operation eq "intersection") {
+    } elsif($op eq "intersection") {
       if(!defined $pe) {
         # if the working set doesn't have this one, the intersection is 0
       } else {
@@ -122,55 +216,48 @@ foreach(@secondaries) {
         $pe->{qty} = $sq < $pq ? $sq : $pq;
         $pe->{hits} += 1;
       }
-    } elsif($operation eq "difference") {
+    } elsif($op eq "difference") {
       if(!defined $pe) {
         # if the working set doesn't have this one, that's fine, leave it at 0
       } else {
         # if it does, remove our qty, bounded by 0 at the low side.
         $pe->{qty} = $pq > $sq ? ($pq-$sq) : 0;
       }
-    } elsif($operation eq "sum") {
+    } elsif($op eq "sum") {
       if(!defined $pe) {
         # if the working set doesn't have this one, just use ours
-        $part_hash{$k} = $se;
+        $c->{$k} = $se;
       } else {
         # if it does, add our qty on to it
         $pe->{qty} += $sq;
         push @{$pe->{sets}}, $s;
       }
     } else {
-      die "ERROR: Don't know how to perform operation [$operation]\n";
+      die "ERROR: Don't understand op [$op]\n";
     }
   }
 
-}
+  if($op eq "intersection") {
+    my $desired_hits = 2;
 
-if($operation eq "intersection") {
-  my $desired_hits = 1 + (scalar @secondaries);
+    # now go back through everything in the working set.
+    # if some part doesn't have a hit from everybody, somebody
+    # must have had a 0, so set the qty to 0.
+    foreach(keys %{$c}) {
+      my $k = $_;
+      my $pe = $c->{$k};
+      my $ph = $pe->{hits};
 
-  # now go back through everything in the working set.
-  # if some part doesn't have a hit from everybody, somebody
-  # must have had a 0, so set the qty to 0.
-  foreach(keys %part_hash) {
-    my $k = $_;
-    my $pe = $part_hash{$_};
-    my $ph = $pe->{hits};
+      if($ph < $desired_hits) {
+        # whoops somebody was missing this part
+        $pe->{qty} = 0;
+      }
 
-    if($ph < $desired_hits) {
-      # whoops somebody was missing this part
-      $part_hash{$k}->{qty} = 0;
+      # reset the hits to 1 again, for next time
+      $pe->{hits} = 1;
     }
   }
+
+  return $c;
 }
-
-# display the resultant state of the working set.
-foreach(sort keys %part_hash) {
-  my $e=$part_hash{$_};
-  if(defined $e && $e->{qty} > 0) {
-    printf "%-10s %-10s %5d %6s %-20s \"%s\" %s\n", $e->{part_id}, $e->{uid},$e->{qty},$e->{type},$e->{color},$e->{desc}, join(',',@{$e->{sets}});
-  }
-
-}
-
-exit 0;
 
