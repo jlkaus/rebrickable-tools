@@ -4,7 +4,7 @@ use strict;
 use warnings;
 use Rebrickable;
 
-#$Rebrickable::SHOW_CALLS = 1;
+$Rebrickable::VERBOSITY = 1;
 
 
 my $trace_ops = undef;
@@ -16,8 +16,8 @@ if(scalar @ARGV > 0) {
   }
 }
 
-sub parse_input {
-  my ($set_id) = @_;
+sub parse_set {
+  my ($set_id, $type) = @_;
 
   my $parts = {};
 
@@ -31,12 +31,11 @@ sub parse_input {
         $c =~ s/\s/_/g;
         my $k = $e->{part_id}.$c;
 
-        if(!defined $parts->{$k}) {
-          $parts->{$k} = {part_id=>$e->{part_id},uid=>$e->{element_id},qty=>$e->{qty},type=>$e->{type},color=>$c,desc=>$e->{part_name}, hits=>1, sets=>[$set_id]};
-        } else {
-          $parts->{$k}->{qty} += $e->{qty};
-          if($parts->{$k}->{type} ne $e->{type}) {
-            $parts->{$k}->{type} .= ",$e->{type}";
+        if(!defined $type || $type == $e->{type}) {
+          if(!defined $parts->{$k}) {
+            $parts->{$k} = {part_id=>$e->{part_id},uid=>$e->{element_id},qty=>$e->{qty},color=>$c,desc=>$e->{part_name}, hits=>1, sets=>[$set_id]};
+          } else {
+            $parts->{$k}->{qty} += $e->{qty};
           }
         }
       }
@@ -93,6 +92,8 @@ while(<>) {
   my $stack_size = scalar @set_stack;  
   print STDERR "$cmd ($stack_size)\n" if $trace_ops;
 
+  my $to_mark = undef;
+  while($to_mark) {
   if($cmd eq "union" ||
      $cmd eq "intersection" ||
      $cmd eq "difference" ||
@@ -103,6 +104,11 @@ while(<>) {
     # then push the result back on the top of the stack
     my $b = pop @set_stack;
     my $a = pop @set_stack;
+
+    # if we're in to-mark mode, and b was a mark, we probably screwed up somehow
+    # if we're in to-mark mode and a was a mark, great. unset to-mark mode and move on
+    # if we're not in to-mark mode, and either was a mark, we screwed up
+    # if neither was a mark (regardless of our current mode), do the operation and push the result
 
     if(defined $a && defined $b) {
       push @set_stack, do_op($cmd, $a, $b);
@@ -125,6 +131,9 @@ while(<>) {
     my $a = pop @set_stack;
     if(defined $a) {
       # great.  done
+    } elsif($to_mark) {
+      # found the mark
+      $to_mark = undef;
     } else {
       die "ERROR: Can't drop from an empty stack ($ARGV:$.).\n";
     }
@@ -144,17 +153,73 @@ while(<>) {
     if(defined $a) {
       print_set($a);
     } else {
-      die "ERROR: Can't print from an empty stack ($ARGV:$.).\n";
+      # found a mark.  If we're in to-mark mode, just stop, otherwise error
+      if($to_mark) {
+        $to_mark = undef;
+      } else {
+        die "ERROR: Can't print from an empty stack ($ARGV:$.).\n";
+      }
     }
-  } else {
+  } elsif($cmd eq "mark") {
+    push @set_stack, undef;
+
+  } elsif($cmd =~ /^to-mark:(.*)$/) {
+    $cmd = $1;
+    $to_mark = 1;
+
+    # Make sure we don't get caught in a loop here.
+    if($cmd eq "exchange" || $cmd eq "dup" || $cmd =~ /^list/ || $cmd =~ /^to-mark/ || $cmd =~ /^mark/ || $cmd =~ /^set/ || $cmd =~ /^part-list/) {
+      die "ERROR: You must use a reductive command with to-mark:, not [$cmd] ($ARGV:$.).\n";
+    }
+
+  } elsif($cmd =~ /^list:(.*)$/) {
+    my $list_id = $1;
+
+    # load the list
+    # load the sets in the list onto the stack
+
+  } elsif($cmd =~ /^list-name:(.*)$/) {
+    my $list_name = $1;
+
+    # load the users lists
+    # find the list with the given name
+    # load the list
+    # load the sets in the list onto the stack
+
+  } elsif($cmd =~ /^list-type:(.*)$/) {
+    my $list_type = $1;
+
+    # load the users lists
+    # find all the lists by type
+    # load the lists
+    # load the sets in the lists onto the stack
+
+  } elsif($cmd =~ /^set:(.*)$/) {
+    my $set_id = $1;
     # must just be a set
     # parse it, and add it to the top of the stack
-    my $a = parse_set($cmd);
+    my $a = parse_set($set_id);
     if(defined $a) {
       push @set_stack, $a;
     } else {
       die "ERROR: Can't load set [$cmd] onto the stack ($ARGV:$.).\n";
     }
+  } elsif($cmd =~ /^set-needed:(.*)$/) {
+
+
+  } elsif($cmd =~ /^set-extra:(.*)$/) {
+
+
+  } elsif($cmd =~ /^part-list:(.*)$/) {
+
+  } elsif($cmd =~ /^part-list-name:(.*)$/) {
+
+  } elsif($cmd =~ /^part-list-type:(.*)$/) {
+
+
+  } else {
+    die "ERROR: Don't understand operation [$cmd] ($ARGV:$.)\n";
+  }
   }
 }
 
@@ -166,7 +231,7 @@ if(scalar @set_stack) {
   print_set($a);
 }
 
-exit 0
+exit 0;
 
 sub print_set {
   my ($a) = @_;
@@ -174,7 +239,7 @@ sub print_set {
   foreach(sort keys %{$a}) {
     my $e=$a->{$_};
     if(defined $e && $e->{qty} > 0) {
-      printf "%-10s %-10s %5d %6s %-20s \"%s\" %s\n", $e->{part_id}, $e->{uid},$e->{qty},$e->{type},$e->{color},$e->{desc}, join(',',@{$e->{sets}});
+      printf "%-10s %-10s %5d %-20s \"%s\" %s\n", $e->{part_id}, $e->{uid},$e->{qty},$e->{color},$e->{desc}, join(',',@{$e->{sets}});
     }
   }
 
@@ -212,7 +277,7 @@ sub do_op {
       } else {
         # if both have it, chose the max qty one to keep
         $pe->{qty} = $sq > $pq ? $sq : $pq;
-        push @{$pe->{sets}}, $s;
+        push @{$pe->{sets}}, @{$se->{sets}};
       }
 
     } elsif($op eq "intersection") {
@@ -237,7 +302,7 @@ sub do_op {
       } else {
         # if it does, add our qty on to it
         $pe->{qty} += $sq;
-        push @{$pe->{sets}}, $s;
+        push @{$pe->{sets}}, @{$se->{sets}};
       }
     } else {
       die "ERROR: Don't understand op [$op]\n";
