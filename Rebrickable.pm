@@ -17,6 +17,7 @@ our $API_URL="http://rebrickable.com/api";
 our $API_KEY="04KAsdNiyk";
 our $API_BACKOFF_TIME=1.0;
 
+our $CACHE_TIEOUT=60*60*24*7; # 1 week for the cache, I guess?
 our $CACHE_DIR=glob("~/.cache/rebrickable");
 our $USER_HASH_FILE=glob("~/.rebrickable_userhash");
 
@@ -75,7 +76,7 @@ loadHash if -r $USER_HASH_FILE;
 our $LAST_API_CALL = 0.0;
 
 sub call_api {
-  my ($api, $method, $parmsi) = @_;
+  my ($api, $method, $parms) = @_;
   my $results = {};
 
   $parms = {} if !defined $parms;
@@ -200,6 +201,21 @@ sub get_user_parts {
   return call_api("get_user_parts","GET",{partlist_id=>$partlist_id});
 }
 
+sub get_colors {
+  return call_api("get_colors","GET",{});
+}
+
+# wrapper to get the list of user part lists and filter by name or type
+
+# wrapper to get the list of user set lists and filter by name or type
+
+# wrapper to get the lists of sets in a user set list (and quantities)
+
+# wrapper to load a user part list
+
+# wrapper to load a set part list and filter by type
+
+
 our $HAVE_LOADED_PART_CACHE = undef;
 our $HAVE_LOADED_SET_CACHE = undef;
 our $HAVE_LOADED_SET_PARTS_CACHE = undef;
@@ -215,13 +231,15 @@ sub part_lookup {
 
   load_part_cache() if !defined $HAVE_LOADED_PART_CACHE;
 
-  if(!defined $part_cache{$part_id}) {
+  if(!defined $part_cache{$part_id} || (time() - $part_cache{$part_id}->{last_fetched} > $CACHE_TIMEOUT)) {
     my $results = get_part($part_id);
 
     # check results status to make sure it worked
-
-    # save off the interesting bits to the cache
-    # $part_cache{$part_id} = 
+    if($results->{code} == 200 && $results->{raw_data} !~ /NOPART/) {
+      # looks good, save it off
+      $part_cache{$part_id} = $results->{data};
+      $part_cache{$part_id}->{last_fetched} = time();
+    }
   }
 
   return $part_cache{$part_id};
@@ -233,13 +251,14 @@ sub set_lookup {
 
   load_set_cache() if !defined $HAVE_LOADED_SET_CACHE;
 
-  if(!defined $set_cache{$set_id}) {
+  if(!defined $set_cache{$set_id} || (time() - $set_cache{$set_id}->{last_fetched} > $CACHE_TIMEOUT)) {
     my $results = get_set($set_id);
 
     # check results status to make sure it worked
-
-    # save off the interesting bits to the cache
-    # $set_cache{$set_id} = 
+    if($results->{code} == 200 && $results->{raw_data} !~ /NOSET/) {
+      # looks good, save it off
+      $set_cache{$set_id} = $results->{data}->[0];
+      $set_cache{$set_id}->{last_fetched} = time();
   }
 
   return $set_cache{$set_id};
@@ -251,13 +270,15 @@ sub set_parts_lookup {
 
   load_set_parts_cache() if !defined $HAVE_LOADED_SET_PARTS_CACHE;
 
-  if(!defined $set_parts_cache{$set_id}) {
+  if(!defined $set_parts_cache{$set_id} || (time() - $set_parts_cache{$set_id}->{last_fetched} > $CACHE_TIMEOUT)) {
     my $results = get_set_parts($set_id);
 
     # check results status to make sure it worked
-
-    # save off the interesting bits to the cache
-    # $set_parts_cache{$set_id} = 
+    if($results->{code} == 200 && $results->{raw_data} !~ /NOSET/) {
+      # looks good, save it off
+      $set_parts_cache{$set_id} = $results->{data}->[0];
+      $set_parts_cache{$set_id}->{last_fetched} = time();
+    }
   }
 
   return $set_parts_cache{$set_id};
@@ -269,13 +290,19 @@ sub color_lookup {
 
   load_color_cache() if !defined $HAVE_LOADED_COLOR_CACHE;
 
-  if(!defined $color_cache{$color_id}) {
+  if(!defined $color_cache{$color_id} || (time() - $color_cache{$color_id}->{last_fetched} > $CACHE_TIMEOUT)) {
     my $results = get_colors();
+    my $fetched = time();
 
     # check results status to make sure it worked
-
-    # save off the interesting bits to the cache
-    # $color_cache{$color_id} = 
+    if($results->{code} == 200) {
+      # looks good, save them all off
+      foreach(@{$results->{data}}) {
+        my $e = $_;
+        $e->{last_fetched} = $fetched;
+        $color_cache{$e->{rb_color_id}} = $e;
+      }
+    }
   }
 
   return $color_cache{$color_id};
@@ -285,6 +312,7 @@ sub color_lookup {
 sub load_part_cache {
   return if defined $HAVE_LOADED_PART_CACHE;
 
+  # load the appropriate cache file, and JSON decode as hash into the internal variable
 
   $HAVE_LOADED_PART_CACHE = 1;
 }
@@ -319,7 +347,7 @@ sub load_color_cache {
 sub save_part_cache {
   return if !defined $HAVE_LOADED_PART_CACHE;
 
-
+  # JSON encode the cache hash and write it to the appropriate cache file
 
 }
 
@@ -347,10 +375,11 @@ sub save_color_cache {
 
 }
 
-EXIT {
+END {
   save_part_cache() if $HAVE_LOADED_PART_CACHE;
   save_set_cache() if $HAVE_LOADED_SET_CACHE;
   save_set_parts_cache() if $HAVE_LOADED_SET_PARTS_CACHE;
+  save_color_cache() if $HAVE_LOADED_COLOR_CACHE;
 }
 
 1;
